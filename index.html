@@ -158,7 +158,7 @@
     </div>
 
     <button id="startBtn" disabled>開始</button>
-    <p class="build-tag">build: gh-v1 (2026-09-01 GitHub Pages版・sRGB対応)</p>
+    <p class="build-tag">build: gh-v2 (2026-09-01 16:05 no-cors送信対応)</p>
   </div>
 </div>
 
@@ -402,8 +402,9 @@
   function sendToSheet(logId, text, scanDate, scanStore) {
     const payload = JSON.stringify({ date: scanDate, store: scanStore, code: text });
 
-    fetch(SCRIPT_URL, { method: 'POST', body: payload })
-      .then(res => res.ok ? res.json().catch(() => ({ result: 'ok' })) : Promise.reject())
+    // Apps ScriptのWebアプリは外部サイトからのfetchでCORSに阻まれやすいため、
+    // no-corsで送信する（結果は確認できないが、送信自体は確実に届く）
+    fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: payload })
       .then(() => {
         updateLogStatus(logId, 'ok');
         sentCount++;
@@ -424,8 +425,7 @@
       const item = retryQueue.shift();
       const payload = JSON.stringify({ date: item.scanDate, store: item.scanStore, code: item.text });
 
-      fetch(SCRIPT_URL, { method: 'POST', body: payload })
-        .then(res => res.ok ? res.json().catch(() => ({ result: 'ok' })) : Promise.reject())
+      fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: payload })
         .then(() => {
           updateLogStatus(item.logId, 'ok');
           sentCount++;
