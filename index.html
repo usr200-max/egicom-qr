@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>エギコムQRリーダー</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<style>
+  :root {
+    --navy-dark: #102547;
+    --bg: #0d0f14;
+    --ink: #eef1f7;
+    --ink-dim: #9aa5b8;
+    --accent: #4fd1c5;
+    --danger: #e2574c;
+    --ok: #6ee7b7;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    overscroll-behavior: none;
+  }
+  .screen {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .screen.active { display: flex; }
+
+  /* ---------- 開始画面 ---------- */
+  #startScreen { justify-content: center; padding: 24px; background: var(--navy-dark); }
+  .setup-box { max-width: 420px; margin: 0 auto; width: 100%; }
+  .setup-box h1 { font-size: 19px; margin: 0 0 6px; }
+  .setup-box .sub { font-size: 13px; color: var(--ink-dim); margin: 0 0 28px; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; color: var(--ink-dim); margin-bottom: 6px; }
+  .field input {
+    width: 100%;
+    padding: 13px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    color: var(--ink);
+    font-size: 16px;
+    font-family: inherit;
+  }
+  .field input::placeholder { color: #5b6779; }
+  #startBtn {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #063230;
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  #startBtn:disabled { background: #2b3542; color: #6b7686; }
+  .setup-error { color: var(--danger); font-size: 12.5px; margin-top: 10px; min-height: 16px; }
+
+  /* ---------- スキャン画面 ---------- */
+  header {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--navy-dark);
+    z-index: 5;
+    gap: 10px;
+  }
+  .header-info { min-width: 0; }
+  .header-info .store { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-info .date { font-size: 11.5px; color: var(--ink-dim); }
+  #endBtn {
+    flex: none;
+    border: none;
+    border-radius: 10px;
+    background: rgba(226,87,76,0.15);
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 14px;
+  }
+
+  .stage { position: relative; flex: 1; overflow: hidden; background: #000; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  canvas { display: none; }
+
+  .frame {
+    position: absolute; top: 46%; left: 50%;
+    width: min(64vw, 300px); height: min(64vw, 300px);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .corner { position: absolute; width: 32px; height: 32px; border: 3px solid var(--accent); opacity: 0.9; }
+  .corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
+  .corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
+  .corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
+  .corner.br { bottom: 0; right: 0; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
+  .frame.found .corner { border-color: var(--ok); }
+
+  .scanline {
+    position: absolute; left: 6%; right: 6%; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: sweep 2.2s ease-in-out infinite;
+  }
+  @keyframes sweep { 0% { top: 6%; } 50% { top: 94%; } 100% { top: 6%; } }
+
+  .status-pill {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    padding: 7px 16px; border-radius: 999px;
+    background: rgba(13,15,20,0.72); backdrop-filter: blur(6px);
+    font-size: 12.5px; color: var(--ink-dim);
+    border: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+  }
+
+  .count-badge {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    padding: 8px 18px; border-radius: 999px;
+    background: rgba(13,15,20,0.72); backdrop-filter: blur(6px);
+    font-size: 13px; font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .count-badge .n { color: var(--accent); }
+
+  .log-panel {
+    background: var(--navy-dark);
+    padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
+    max-height: 30vh;
+    overflow-y: auto;
+  }
+  .log-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-size: 12.5px;
+  }
+  .log-item:last-child { border-bottom: none; }
+  .log-item .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .log-item .dot.ok { background: var(--ok); }
+  .log-item .dot.pending { background: #f4c95d; }
+  .log-item .dot.error { background: var(--danger); }
+  .log-item .val { flex: 1; min-width: 0; color: var(--ink); word-break: break-all; }
+  .log-item .time { flex: none; color: #5b6779; font-variant-numeric: tabular-nums; }
+  .log-empty { color: #5b6779; font-size: 12.5px; padding: 10px 4px; }
+
+  .overlay-msg {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; padding: 32px; text-align: center;
+    background: var(--bg);
+  }
+  .overlay-msg p { color: var(--ink-dim); font-size: 13.5px; line-height: 1.7; margin: 0; }
+  .overlay-msg button {
+    padding: 12px 28px; border: none; border-radius: 12px;
+    background: var(--accent); color: #063230; font-weight: 700; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<!-- 開始画面 -->
+<div class="screen active" id="startScreen">
+  <div class="setup-box">
+    <h1>エギコムQRリーダー</h1>
+    <p class="sub">イベント開始時に日付と開催店舗を入力してください</p>
+
+    <div class="field">
+      <label for="dateInput">日付</label>
+      <input type="date" id="dateInput">
+    </div>
+    <div class="field">
+      <label for="storeInput">開催店舗</label>
+      <input type="text" id="storeInput" placeholder="例：大阪○○店">
+    </div>
+
+    <button id="startBtn" disabled>開始</button>
+    <div class="setup-error" id="setupError"></div>
+  </div>
+</div>
+
+<!-- スキャン画面 -->
+<div class="screen" id="scanScreen">
+  <header>
+    <div class="header-info">
+      <div class="store" id="headerStore"></div>
+      <div class="date" id="headerDate"></div>
+    </div>
+    <button id="endBtn">終了</button>
+  </header>
+
+  <div class="stage">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div class="status-pill" id="statusPill">カメラ起動中…</div>
+
+    <div class="frame" id="frame">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      <div class="scanline"></div>
+    </div>
+
+    <div class="count-badge">本日の読み取り：<span class="n" id="countNum">0</span> 件</div>
+
+    <div class="overlay-msg" id="cameraErrorOverlay" style="display:none;">
+      <p>カメラを起動できませんでした。<br>設定アプリ &gt; Safari &gt; カメラ、でこのサイトへのアクセスを許可してから、もう一度お試しください。</p>
+      <button id="retryCameraBtn">再試行</button>
+    </div>
+  </div>
+
+  <div class="log-panel">
+    <div id="logList"><div class="log-empty">まだ読み取りはありません</div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ==========================================================
+  // ここにApps ScriptのウェブアプリURLが設定されています
+  // ==========================================================
+  const SCRIPT_URL = 'https://script.google.com/a/macros/yamaria.co.jp/s/AKfycby6Zw3l-Qtb24F0DhFPaeLIRmrNYyYOYbclFLPNIXDT6Pp9oHplsIP9V0ig_9CTRRDwPA/exec';
+
+  // ---------- 要素取得 ----------
+  const startScreen = document.getElementById('startScreen');
+  const scanScreen = document.getElementById('scanScreen');
+  const dateInput = document.getElementById('dateInput');
+  const storeInput = document.getElementById('storeInput');
+  const startBtn = document.getElementById('startBtn');
+  const setupError = document.getElementById('setupError');
+  const endBtn = document.getElementById('endBtn');
+  const headerStore = document.getElementById('headerStore');
+  const headerDate = document.getElementById('headerDate');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const statusPill = document.getElementById('statusPill');
+  const frame = document.getElementById('frame');
+  const countNum = document.getElementById('countNum');
+  const logList = document.getElementById('logList');
+  const cameraErrorOverlay = document.getElementById('cameraErrorOverlay');
+  const retryCameraBtn = document.getElementById('retryCameraBtn');
+
+  let currentDate = '';
+  let currentStore = '';
+  let stream = null;
+  let scanning = false;
+  let lastVisibleCode = null;   // カメラに映り続けている間、同じコードを連続送信しないための状態
+  let sentCount = 0;
+  let retryQueue = [];          // 送信失敗分の再送キュー
+  let retryTimer = null;
+
+  // ---------- 日付初期値：今日 ----------
+  function todayStr() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+  dateInput.value = todayStr();
+
+  // ---------- 開始ボタンの活性制御 ----------
+  function refreshStartBtn() {
+    startBtn.disabled = !(dateInput.value && storeInput.value.trim());
+  }
+  dateInput.addEventListener('input', refreshStartBtn);
+  storeInput.addEventListener('input', refreshStartBtn);
+  refreshStartBtn();
+
+  // ---------- 開始 ----------
+  startBtn.addEventListener('click', () => {
+    currentDate = dateInput.value;
+    currentStore = storeInput.value.trim();
+    setupError.textContent = '';
+
+    startScreen.classList.remove('active');
+    scanScreen.classList.add('active');
+
+    headerStore.textContent = currentStore;
+    headerDate.textContent = currentDate;
+
+    startCamera();
+  });
+
+  // ---------- 終了 ----------
+  endBtn.addEventListener('click', () => {
+    stopCamera();
+    scanScreen.classList.remove('active');
+    startScreen.classList.add('active');
+
+    // 表示をリセット（次のイベントに備える）
+    sentCount = 0;
+    countNum.textContent = '0';
+    logList.innerHTML = '<div class="log-empty">まだ読み取りはありません</div>';
+    lastVisibleCode = null;
+    storeInput.value = '';
+    dateInput.value = todayStr();
+    refreshStartBtn();
+  });
+
+  // ---------- カメラ ----------
+  async function startCamera() {
+    cameraErrorOverlay.style.display = 'none';
+    statusPill.textContent = 'カメラ起動中…';
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      statusPill.textContent = 'QRコードを枠内に合わせてください';
+      scanning = true;
+      requestAnimationFrame(tick);
+    } catch (err) {
+      cameraErrorOverlay.style.display = 'flex';
+      statusPill.textContent = 'カメラ利用不可';
+    }
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+  }
+
+  retryCameraBtn.addEventListener('click', startCamera);
+
+  // ---------- スキャンループ ----------
+  function tick() {
+    if (!scanning) return;
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+
+      if (code && code.data) {
+        if (code.data !== lastVisibleCode) {
+          lastVisibleCode = code.data;
+          onDetected(code.data);
+        }
+        frame.classList.add('found');
+      } else {
+        lastVisibleCode = null;
+        frame.classList.remove('found');
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- 検出時の処理 ----------
+  function onDetected(text) {
+    if (navigator.vibrate) navigator.vibrate(50);
+    statusPill.textContent = '読み取りました';
+    setTimeout(() => {
+      if (scanning) statusPill.textContent = 'QRコードを枠内に合わせてください';
+    }, 900);
+
+    const logId = 'log-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    addLogRow(logId, text, 'pending');
+    sendToSheet(logId, text);
+  }
+
+  // ---------- ログ表示 ----------
+  function addLogRow(id, text, status) {
+    const empty = logList.querySelector('.log-empty');
+    if (empty) empty.remove();
+
+    const row = document.createElement('div');
+    row.className = 'log-item';
+    row.id = id;
+
+    const dot = document.createElement('div');
+    dot.className = 'dot ' + status;
+
+    const val = document.createElement('div');
+    val.className = 'val';
+    val.textContent = text;
+
+    const time = document.createElement('div');
+    time.className = 'time';
+    const now = new Date();
+    time.textContent = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+
+    row.appendChild(dot);
+    row.appendChild(val);
+    row.appendChild(time);
+    logList.insertBefore(row, logList.firstChild);
+  }
+
+  function updateLogStatus(id, status) {
+    const row = document.getElementById(id);
+    if (!row) return;
+    const dot = row.querySelector('.dot');
+    dot.className = 'dot ' + status;
+  }
+
+  // ---------- スプレッドシートへ送信（Apps ScriptのdoPostへPOST） ----------
+  function sendToSheet(logId, text) {
+    const payload = JSON.stringify({ date: currentDate, store: currentStore, code: text });
+
+    // Content-Typeを指定しない（デフォルトのtext/plain）ことで、
+    // ブラウザの事前確認リクエスト(preflight)を回避し、Apps Script側で正しく受信できるようにしている
+    fetch(SCRIPT_URL, { method: 'POST', body: payload })
+      .then(res => res.ok ? res.json().catch(() => ({ result: 'ok' })) : Promise.reject())
+      .then(() => {
+        updateLogStatus(logId, 'ok');
+        sentCount++;
+        countNum.textContent = String(sentCount);
+      })
+      .catch(() => {
+        updateLogStatus(logId, 'error');
+        retryQueue.push({ logId, text });
+        scheduleRetry();
+      });
+  }
+
+  function scheduleRetry() {
+    if (retryTimer) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (retryQueue.length === 0) return;
+      const item = retryQueue.shift();
+      const payload = JSON.stringify({ date: currentDate, store: currentStore, code: item.text });
+
+      fetch(SCRIPT_URL, { method: 'POST', body: payload })
+        .then(res => res.ok ? res.json().catch(() => ({ result: 'ok' })) : Promise.reject())
+        .then(() => {
+          updateLogStatus(item.logId, 'ok');
+          sentCount++;
+          countNum.textContent = String(sentCount);
+          if (retryQueue.length > 0) scheduleRetry();
+        })
+        .catch(() => {
+          retryQueue.push(item);
+          scheduleRetry();
+        });
+    }, 4000);
+  }
+})();
+</script>
+</body>
+</html>
